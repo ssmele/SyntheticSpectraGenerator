@@ -59,9 +59,11 @@ class FluxDatasetGenerator:
         """
         with h5.File(self.filename, "w") as file:
             # Set up datasets for the flux values and its corresponding z value.
-            file.create_dataset('flux',
-                                shape=(self.num_spectra, len(self.manga_wave)))
-            file.create_dataset('zs', shape=(self.num_spectra,))
+            file.create_dataset(
+                    'flux',
+                    shape=(self.num_spectra, 1, len(self.manga_wave))
+                    )
+            file.create_dataset('zs', shape=(self.num_spectra, 1))
 
             # Save both the manga wave and descriptions as attributes
             file.attrs['manga_wave'] = self.manga_wave

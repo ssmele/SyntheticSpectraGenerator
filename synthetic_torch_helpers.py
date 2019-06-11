@@ -2,6 +2,8 @@ from torch.utils.data import Dataset
 from torch import torch
 
 import h5py as h5
+import numpy as np
+import os
 
 class SyntheticFluxDataset(torch.utils.data.Dataset):
 
@@ -42,7 +44,83 @@ class SyntheticFluxDataset(torch.utils.data.Dataset):
 
         :param idx: index of the flux, and label we want to read.
         """
-        return torch.from_numpy(self.fluxs[idx]), self.zs[idx]
+        X = torch.from_numpy(np.expand_dims(self.fluxs[idx], 0))
+        y = torch.Tensor([self.zs[idx]])
+        return X, y
+
+class H5Dataset(torch.utils.data.Dataset):
+
+    def __init__(self, filename, keys, load_to_memory=False):
+        """
+        Constructor for a generic dataset that is encapsulated within a
+        h5py file. Each key given is assumed to be a dataset within the h5 file
+        that will be attached to the class and used as the data for the
+        dataset.
+
+        :param filename: location of h5 file.
+        :param keys: list of dataset keywords to extract.
+        :param load_to_memory: boolean if data should be loaded to memory.
+        """
+        super(H5Dataset, self).__init__()
+
+        self.filename = filename
+        self.keys = keys
+        self.load_to_memory = load_to_memory
+
+        # Ensure atleast one key is present.
+        if len(self.keys) == 0:
+            raise ValueError("Keys must be atleast length one.")
+
+        # Read in the file.
+        if not os.path.isfile(self.filename):
+            raise ValueError("Can't find file.")
+        file = h5.File(self.filename, 'r')
+
+        # Ensure all datasets are of the same length.
+        if len(set(len(file[k]) for k in self.keys)) != 1:
+            raise ValueError("All datasets must be of the same length.")
+
+        # Go through each key and attribute its data to the class.
+        for k in keys:
+            if self.load_to_memory:
+                # Set a copy of the array onto the class.
+                setattr(self, k, file[k][:])
+            else:
+                # Just a reference to the dataset in the file.
+                setattr(self, k, file.get(k))
+
+        # If we loaded into memory we can close the file.
+        if self.load_to_memory:
+            file.close()
+
+    def __len__(self):
+        """
+        Gets the length of dataset.
+        """
+        return len(getattr(self, self.keys[0]))
+
+    def __getitem__(self, idx):
+        """
+        Constructs an item of the dataset as a tuple in the same order as the
+        keys given on dataset construction. Assumes a numpy array is stored
+        at each index of the different h5 datasets. Does this so from_numpy can
+        be used to generate tensors for the data.
+
+        :param idx: index of the datasets to retrieve.
+        """
+        return tuple(torch.from_numpy(getattr(self, k)[idx]) for k in self.keys)
+
+class SynH5Dataset(H5Dataset):
+    """
+    Dataset for synthetic dataset encapsulated in a H5 file. By default assumes
+    datasets are labeled 'flux' and 'id'.
+
+    :param filename: File location of the h5 file.
+    :param keys: dataset names in h5 file.
+    :param load_to_memory: If dataset should be loaded to memory.
+    """
+    def __init__(self, filename, keys=['flux', 'zs'], load_to_memory=False):
+        super(SynH5Dataset, self).__init__(filename, keys, load_to_memory)
 
 class ConvModSyn(torch.nn.Module):
 
@@ -76,9 +154,9 @@ class ConvModSyn(torch.nn.Module):
                         torch.nn.BatchNorm1d(c_out),
                         torch.nn.ReLU()))
             # If we are at a pooling ix location add it.
-            if ix in pooling_ixs:
+            if ix in pooling_ixs.keys():
                 self.conv_layers.add_module("pool_{}".format(ix),
-                        torch.nn.MaxPool1d(2))
+                        torch.nn.MaxPool1d(pooling_ixs[ix]))
 
         # Set up the fully connected layers.
         self.fc_layers = torch.nn.Sequential()
@@ -88,9 +166,9 @@ class ConvModSyn(torch.nn.Module):
                         torch.nn.Linear(f_in, f_out),
                         torch.nn.ReLU()))
             # If we are at a dropout ix location add it.
-            if ix in dropout_ixs:
+            if ix in dropout_ixs.keys():
                 self.fc_layers.add_module("dropout_{}".format(ix),
-                        torch.nn.Dropout(.5))
+                        torch.nn.Dropout(dropout_ixs[ix]))
 
         # Add the last layer without relu to apply final act function.
         f_in, f_out = full_config[-1]
