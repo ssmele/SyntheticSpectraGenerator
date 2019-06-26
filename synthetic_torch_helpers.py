@@ -50,7 +50,7 @@ class SyntheticFluxDataset(torch.utils.data.Dataset):
 
 class H5Dataset(torch.utils.data.Dataset):
 
-    def __init__(self, filename, keys, load_to_memory=False):
+    def __init__(self, filename, keys, load_to_memory=False, transforms={}):
         """
         Constructor for a generic dataset that is encapsulated within a
         h5py file. Each key given is assumed to be a dataset within the h5 file
@@ -60,12 +60,16 @@ class H5Dataset(torch.utils.data.Dataset):
         :param filename: location of h5 file.
         :param keys: list of dataset keywords to extract.
         :param load_to_memory: boolean if data should be loaded to memory.
+        :param transforms: dictionary with the keys being the dictionary
+        keywords and the value being a function to apply to the data.
         """
         super(H5Dataset, self).__init__()
 
         self.filename = filename
         self.keys = keys
         self.load_to_memory = load_to_memory
+        self.transforms = transforms
+        self._i = lambda x : x
 
         # Ensure atleast one key is present.
         if len(self.keys) == 0:
@@ -106,9 +110,19 @@ class H5Dataset(torch.utils.data.Dataset):
         at each index of the different h5 datasets. Does this so from_numpy can
         be used to generate tensors for the data.
 
+        Applies given transformations to datasets by key.
+
         :param idx: index of the datasets to retrieve.
         """
-        return tuple(torch.from_numpy(getattr(self, k)[idx]) for k in self.keys)
+        if self.transforms:
+            items = []
+            for k in self.keys:
+                k_trans = self.transforms.get(k, self._i)
+                items.append(k_trans(torch.from_numpy(getattr(self, k)[idx])))
+            return tuple(items)
+        else:
+            return tuple(torch.from_numpy(getattr(self, k)[idx]) for k in self.keys)
+
 
 class SynH5Dataset(H5Dataset):
     """
@@ -117,15 +131,20 @@ class SynH5Dataset(H5Dataset):
 
     :param filename: File location of the h5 file.
     :param keys: dataset names in h5 file.
-    :param load_to_memory: If dataset should be loaded to memory.
+    :param load_to_memory: boolean if data should be loaded to memory.
+    :param transforms: dictionary with the keys being the dictionary keywords
+    and the value being a function to apply to the data.
     """
-    def __init__(self, filename, keys=['flux', 'zs'], load_to_memory=False):
-        super(SynH5Dataset, self).__init__(filename, keys, load_to_memory)
+    def __init__(self, filename, keys=['flux', 'zs'], load_to_memory=None,
+                 transforms=None):
+        super(SynH5Dataset, self).__init__(filename, keys=keys,
+                                           load_to_memory=load_to_memory,
+                                           transforms=transforms)
 
 class ConvModSyn(torch.nn.Module):
 
     def __init__(self, conv_config, full_config, pooling_ixs, dropout_ixs,
-                 final_act):
+                 final_act, forward_flux=False):
         """
         Constructor for the Synthetic Flux Model. Takes in a configuration
         list for the convolutional layers. The configuration is a list of
@@ -142,6 +161,9 @@ class ConvModSyn(torch.nn.Module):
         :param full_config:
         :param pooling_ixs:
         :param dropout_ixs:
+        :param final_act: Final activation function applied to last layer.
+        :param forward_flux: boolean to determine if we should forward
+        the origional flux to the fully connected layers.
         """
         super(ConvModSyn, self).__init__()
 
@@ -176,14 +198,26 @@ class ConvModSyn(torch.nn.Module):
                 torch.nn.Linear(f_in, f_out))
 
         self.final_act = final_act
+        self.forward_flux = forward_flux
 
     def forward(self, x):
+        # If we are forwarding the flux to the fully connected layers save it.
+        if self.forward_flux:
+            f = x
+
         # Pass batch of spectra through conv layers.
         for cl in self.conv_layers:
             x = cl(x)
 
-        # Pass flattened images through fully connected layers.
+        # Flatten flux filters.
         x = x.view(x.size(0), -1)
+
+        # concate the full flux values before the fully connected layers.
+        if self.forward_flux:
+            # Need to take remove channel dim from f.
+            x = torch.cat([x, f.view(f.size(0), -1)], dim=1)
+
+        # run the data through the fully connected layers.
         for fl in self.fc_layers:
             x = fl(x)
         x = self.final_act(x)
