@@ -68,8 +68,9 @@ class FluxDatasetGenerator:
             # Save both the manga wave and descriptions as attributes
             file.attrs['manga_wave'] = self.manga_wave
             if self.description:
-                file.attrs['description'] = self.description
-
+                for k, v in self.description.items():
+                    file.attrs[k] = v
+    
             # If we specified set up datasets for various parameters.
             if self.track_params:
                 file.create_dataset('as', shape=(self.num_spectra,))
