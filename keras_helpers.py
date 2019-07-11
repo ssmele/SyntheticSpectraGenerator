@@ -1,8 +1,18 @@
 import gspread
-import oauth2client.service_account import ServiceAccountCredentials
+import numpy as np
+import keras.backend as K
+import tensorflow as tf
 
 from datetime import datetime as dt
 from keras.callbacks import Callback
+from oauth2client.service_account import ServiceAccountCredentials
+
+kms = 300
+c = 299792.458 #Speed of Light in kms
+z_tol = np.sqrt((1+kms/c)/(1-kms/c))-1
+
+def sci_standard(y_t, y_p):
+    return K.mean(K.less_equal(np.abs(y_t - y_p), z_tol))
 
 class EndEpochMetric(Callback):
     """
@@ -43,8 +53,7 @@ class GoogleSheetsWriter(Callback):
     :param json_keyfile: need a oauth json_keyfile to access Google Drive files.
     :param training_spreadsheet: name of training spreadsheet to add worksheets
     of training information to.
-    :param model_info: dict containing configuration information for the model
-    used
+    :param model_info: model used in training. Makes use of keras model.summary method.
     :param exp_info: dict containing configuration information for the
     experiment set up.
     """
@@ -68,15 +77,22 @@ class GoogleSheetsWriter(Callback):
                 10, 10)
 
         # writing model info
-        self.ws.append_row(list(model_info.keys()))
-        self.ws.append_row(list(model_info.values()))
+        self.ws.append_row(['-------------------- Model Info --------------------'])
+        model_info.summary(print_fn=lambda x: self.ws.append_row([str(x)]))
 
         # writing experiment info
+        self.ws.append_row(['-------------------- Experiment Info --------------------'])
         self.ws.append_row(list(exp_info.keys()))
         self.ws.append_row(list(exp_info.values()))
+        
+        self.ws.append_row(['-------------------- Training Results --------------------'])
 
     def on_epoch_end(self, epoch, logs={}):
-        # writing evaluation metrics.
-        if len(self.ws.get_all_values()) <= 5:
-            self.ws.append_row(['epoch'] + list(logs.keys()))
-        self.ws.append_row([epoch] + list(logs.values()))
+        try:
+            # writing evaluation metrics.
+            if epoch == 0:
+                self.ws.append_row(['epoch'] + list(logs.keys()))
+            self.ws.append_row([epoch] + list(logs.values()))
+        except Exception as e:
+            print("Couldnt write to sheet:{}\n {}" .format(['epoch'] + list(logs.keys()), 
+                                                           [epoch] + list(logs.values())))

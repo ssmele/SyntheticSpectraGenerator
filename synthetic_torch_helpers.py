@@ -31,6 +31,7 @@ class SyntheticFluxDataset(torch.utils.data.Dataset):
         else:
             self.fluxs = file.get('flux')
             self.zs = file.get('zs')
+            self.file = file
 
     def __len__(self):
         """
@@ -96,6 +97,8 @@ class H5Dataset(torch.utils.data.Dataset):
         # If we loaded into memory we can close the file.
         if self.load_to_memory:
             file.close()
+        else:
+            self.file = file
 
     def __len__(self):
         """
