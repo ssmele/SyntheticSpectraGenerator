@@ -49,17 +49,20 @@ class GoogleSheetsWriter(Callback):
 
     This callback logs all the metrics stored in the logs after the epoch
     has ended.
-
-    :param json_keyfile: need a oauth json_keyfile to access Google Drive files.
-    :param training_spreadsheet: name of training spreadsheet to add worksheets
-    of training information to.
-    :param model_info: model used in training. Makes use of keras model.summary method.
-    :param exp_info: dict containing configuration information for the
-    experiment set up.
     """
 
-    def __init__(self, json_keyfile, training_spreadsheet, model_info, exp_info,
+    def __init__(self, json_keyfile, training_spreadsheet, model_info, exp_info, dataset_info,
                  *args, **kwargs):
+        """
+        :param json_keyfile: need a oauth json_keyfile to access Google Drive files.
+        :param training_spreadsheet: name of training spreadsheet to add worksheets
+        of training information to.
+        :param model_info: model used in training. Makes use of keras model.summary method.
+        :param exp_info: dict containing configuration information for the
+        experiment set up.
+        :param dataset info: dict containing configuration information for
+        the dataset used.
+        """
         super(GoogleSheetsWriter, self).__init__(*args, **kwargs)
 
         # use creds to create a client to interact with the Google Drive API
@@ -79,7 +82,12 @@ class GoogleSheetsWriter(Callback):
         # writing model info
         self.ws.append_row(['-------------------- Model Info --------------------'])
         model_info.summary(print_fn=lambda x: self.ws.append_row([str(x)]))
-
+        
+        # dataset info
+        self.ws.append_row(['-------------------- Dataset Info ------------------'])
+        self.ws.append_row(list(dataset_info.keys()))
+        self.ws.append_row(list(map(str, dataset_info.values())))
+    
         # writing experiment info
         self.ws.append_row(['-------------------- Experiment Info --------------------'])
         self.ws.append_row(list(exp_info.keys()))
